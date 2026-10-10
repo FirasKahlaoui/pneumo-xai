@@ -2,13 +2,14 @@ from pathlib import Path
 
 import torch
 from torch import nn, optim
+from tqdm import tqdm
 
-from src.dataset import (
+from dataset import (
     train_loader,
     val_loader,
     train_dataset,
 )
-from src.model import build_model, DEVICE
+from model import build_model, DEVICE
 
 
 # ============================================================
@@ -27,7 +28,7 @@ MODEL_PATH = MODEL_DIR / "vgg16_best.pth"
 # 2. TRAINING FUNCTION
 # ============================================================
 
-def train_one_epoch(model, loader, criterion, optimizer):
+def train_one_epoch(model, loader, criterion, optimizer, epoch):
     model.train()
 
     # Keep the frozen feature extractor in evaluation mode.
@@ -37,7 +38,10 @@ def train_one_epoch(model, loader, criterion, optimizer):
     correct_predictions = 0
     total_images = 0
 
-    for images, labels in loader:
+    # Wrap the loader with tqdm for a batch-level progress bar
+    progress_bar = tqdm(loader, desc=f"Epoch {epoch} [Train]", leave=False)
+
+    for images, labels in progress_bar:
         images = images.to(DEVICE)
         labels = labels.to(DEVICE)
 
@@ -50,12 +54,16 @@ def train_one_epoch(model, loader, criterion, optimizer):
         optimizer.step()
 
         batch_size = labels.size(0)
-
         total_loss += loss.item() * batch_size
 
         predictions = outputs.argmax(dim=1)
         correct_predictions += (predictions == labels).sum().item()
         total_images += batch_size
+
+        # Update the live progress bar description with current loss and accuracy
+        current_loss = total_loss / total_images
+        current_acc = correct_predictions / total_images
+        progress_bar.set_postfix(loss=f"{current_loss:.4f}", acc=f"{current_acc:.4f}")
 
     average_loss = total_loss / total_images
     accuracy = correct_predictions / total_images
@@ -67,15 +75,18 @@ def train_one_epoch(model, loader, criterion, optimizer):
 # 3. VALIDATION FUNCTION
 # ============================================================
 
-def validate(model, loader, criterion):
+def validate(model, loader, criterion, epoch):
     model.eval()
 
     total_loss = 0.0
     correct_predictions = 0
     total_images = 0
 
+    # Wrap the validation loader with tqdm
+    progress_bar = tqdm(loader, desc=f"Epoch {epoch} [Valid]", leave=False)
+
     with torch.no_grad():
-        for images, labels in loader:
+        for images, labels in progress_bar:
             images = images.to(DEVICE)
             labels = labels.to(DEVICE)
 
@@ -83,12 +94,15 @@ def validate(model, loader, criterion):
             loss = criterion(outputs, labels)
 
             batch_size = labels.size(0)
-
             total_loss += loss.item() * batch_size
 
             predictions = outputs.argmax(dim=1)
             correct_predictions += (predictions == labels).sum().item()
             total_images += batch_size
+
+            current_loss = total_loss / total_images
+            current_acc = correct_predictions / total_images
+            progress_bar.set_postfix(loss=f"{current_loss:.4f}", acc=f"{current_acc:.4f}")
 
     average_loss = total_loss / total_images
     accuracy = correct_predictions / total_images
@@ -120,23 +134,23 @@ def main():
 
     best_val_loss = float("inf")
 
-    for epoch in range(EPOCHS):
-        print(
-            f"\nEpoch {epoch + 1}/{EPOCHS}",
-            flush=True,
-        )
+    # Wrap the epoch loop to track overall training progress
+    for epoch in range(1, EPOCHS + 1):
+        print(f"\n--- Epoch {epoch}/{EPOCHS} ---", flush=True)
 
         train_loss, train_accuracy = train_one_epoch(
             model,
             train_loader,
             criterion,
             optimizer,
+            epoch,
         )
 
         val_loss, val_accuracy = validate(
             model,
             val_loader,
             criterion,
+            epoch,
         )
 
         print(
@@ -156,7 +170,7 @@ def main():
 
             torch.save(
                 {
-                    "epoch": epoch + 1,
+                    "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": val_loss,

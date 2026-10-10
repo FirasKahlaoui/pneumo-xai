@@ -2,7 +2,7 @@ from pathlib import Path
 
 import torch
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
 
 # ============================================================
@@ -10,11 +10,7 @@ from torch.utils.data import DataLoader
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
-
-TRAIN_DIR = DATA_DIR / "train"
-VAL_DIR = DATA_DIR / "val"
-TEST_DIR = DATA_DIR / "test"
+FULL_DATA_DIR = PROJECT_ROOT / "full_data"
 
 IMAGE_SIZE = 224
 BATCH_SIZE = 16
@@ -39,39 +35,32 @@ image_transform = transforms.Compose([
 # 3. LOAD DATASETS
 # ============================================================
 
-def load_datasets():
-    for directory in (TRAIN_DIR, VAL_DIR, TEST_DIR):
-        if not directory.is_dir():
-            raise FileNotFoundError(
-                f"Dataset directory not found: {directory}"
-            )
-
-    train_dataset = datasets.ImageFolder(
-        root=TRAIN_DIR,
-        transform=image_transform,
-    )
-
-    val_dataset = datasets.ImageFolder(
-        root=VAL_DIR,
-        transform=image_transform,
-    )
-
-    test_dataset = datasets.ImageFolder(
-        root=TEST_DIR,
-        transform=image_transform,
-    )
-
-    expected_classes = train_dataset.class_to_idx
-
-    if val_dataset.class_to_idx != expected_classes:
-        raise ValueError(
-            "Validation classes do not match training classes."
+def load_datasets(seed=42):
+    if not FULL_DATA_DIR.is_dir():
+        raise FileNotFoundError(
+            f"Dataset directory not found: {FULL_DATA_DIR}"
         )
 
-    if test_dataset.class_to_idx != expected_classes:
-        raise ValueError(
-            "Test classes do not match training classes."
-        )
+    full_dataset = datasets.ImageFolder(
+        root=FULL_DATA_DIR,
+        transform=image_transform,
+    )
+
+    total_size = len(full_dataset)
+    train_size = int(0.8 * total_size)
+    val_size = int(0.1 * total_size)
+    test_size = total_size - train_size - val_size
+
+    generator = torch.Generator().manual_seed(seed)
+    train_dataset, val_dataset, test_dataset = random_split(
+        full_dataset,
+        [train_size, val_size, test_size],
+        generator=generator,
+    )
+
+    for ds in (train_dataset, val_dataset, test_dataset):
+        ds.classes = full_dataset.classes
+        ds.class_to_idx = full_dataset.class_to_idx
 
     return train_dataset, val_dataset, test_dataset
 
